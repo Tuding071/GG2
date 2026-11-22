@@ -1601,6 +1601,242 @@ jobs:
                   }
               }
           }
+
+          const val YT_SWITCH_JS = """// ==UserScript==
+          // @name         YT Live Chat Switch
+          // @namespace    gg2-yt
+          // @version      1.0
+          // @description  m.youtube.com watch pages: adds a Live chat button that reopens the video in the desktop layout (app=desktop). Live streams switch automatically. Set AUTO_LIVE to false to use only the button.
+          // @match        *://m.youtube.com/*
+          // @run-at       document-idle
+          // ==/UserScript==
+
+          (function () {
+            'use strict';
+
+            // true = live streams open in the desktop layout by themselves
+            var AUTO_LIVE = true;
+
+            var PILL_ID = 'gg2-chat-pill';
+            var lastHref = '';
+            var tries = 0;
+            var doneFor = '';
+
+            function isWatch() {
+              return location.pathname === '/watch' || location.pathname.indexOf('/live/') === 0;
+            }
+
+            function videoId() {
+              if (location.pathname === '/watch') {
+                return new URLSearchParams(location.search).get('v') || '';
+              }
+              return location.pathname.split('/')[2] || '';
+            }
+
+            function desktopUrl() {
+              var p = new URLSearchParams(location.search);
+              p.delete('gg2m');
+              p.set('app', 'desktop');
+              p.set('v', videoId());
+              return 'https://www.youtube.com/watch?' + p.toString();
+            }
+
+            function looksLive() {
+              try {
+                var m = document.querySelector('meta[itemprop="isLiveBroadcast"]');
+                if (m && /true/i.test(m.getAttribute('content') || '')) return true;
+              } catch (e) {}
+              try {
+                var t = document.body ? document.body.innerText : '';
+                if (/[0-9][0-9.,]*\s*[KMB]?\s+watching now/i.test(t)) return true;
+              } catch (e) {}
+              return false;
+            }
+
+            function showPill() {
+              if (document.getElementById(PILL_ID)) return;
+              var b = document.createElement('div');
+              b.id = PILL_ID;
+              b.textContent = 'Live chat';
+              b.style.cssText = 'position:fixed;bottom:76px;right:8px;z-index:2147483647;background:#fff;color:#000;font:bold 12px sans-serif;padding:7px 11px;border-radius:14px;opacity:0.92;';
+              b.addEventListener('click', function (e) {
+                e.preventDefault();
+                location.assign(desktopUrl());
+              });
+              (document.body || document.documentElement).appendChild(b);
+            }
+
+            function hidePill() {
+              var b = document.getElementById(PILL_ID);
+              if (b) b.remove();
+            }
+
+            function onRoute() {
+              if (!isWatch()) {
+                hidePill();
+                return;
+              }
+              showPill();
+              var id = videoId();
+              var manual = location.search.indexOf('gg2m=1') >= 0;
+              if (!AUTO_LIVE || manual || !id || doneFor === id) return;
+              if (looksLive()) {
+                doneFor = id;
+                location.replace(desktopUrl());
+                return;
+              }
+              tries++;
+              if (tries > 14) doneFor = id;
+            }
+
+            setInterval(function () {
+              if (location.href !== lastHref) {
+                lastHref = location.href;
+                tries = 0;
+                doneFor = '';
+              }
+              onRoute();
+            }, 700);
+          })();"""
+
+          const val YT_LAYOUT_JS = """// ==UserScript==
+          // @name         YT Watch Layout
+          // @namespace    gg2-yt
+          // @version      1.0
+          // @description  www.youtube.com watch pages (app=desktop): shows only the video and live chat, with Mobile and Full buttons. Browsing pages on www go back to the mobile site.
+          // @match        *://www.youtube.com/*
+          // @run-at       document-start
+          // ==/UserScript==
+
+          (function () {
+            'use strict';
+
+            var STYLE_ID = 'gg2-yt-style';
+            var BAR_ID = 'gg2-yt-bar';
+            var full = false;
+
+            var CSS = [
+              'html.gg2-lite ytd-masthead, html.gg2-lite #masthead-container, html.gg2-lite #guide, html.gg2-lite tp-yt-app-drawer,',
+              'html.gg2-lite ytd-mini-guide-renderer, html.gg2-lite ytd-guide-renderer, html.gg2-lite #chips-wrapper, html.gg2-lite #related,',
+              'html.gg2-lite ytd-watch-next-secondary-results-renderer, html.gg2-lite ytd-comments, html.gg2-lite #comments,',
+              'html.gg2-lite ytd-watch-metadata, html.gg2-lite #above-the-fold, html.gg2-lite #below ytd-merch-shelf-renderer,',
+              'html.gg2-lite ytd-engagement-panel-section-list-renderer:not([target-id*="chat"]), html.gg2-lite ytd-popup-container { display: none !important; }',
+              'html.gg2-lite ytd-app { --ytd-masthead-height: 0px !important; }',
+              'html.gg2-lite ytd-page-manager, html.gg2-lite #page-manager { margin-top: 0 !important; }',
+              'html.gg2-lite ytd-live-chat-frame { height: calc(100vh - 56.25vw) !important; min-height: 240px; }',
+              'html.gg2-lite body { overflow-x: hidden; }',
+              '#gg2-yt-bar { position: fixed; top: 2px; left: 2px; z-index: 2147483647; display: flex; gap: 6px; }',
+              '#gg2-yt-bar span { background: rgba(255,255,255,0.85); color: #000; font: bold 11px sans-serif; padding: 4px 9px; border-radius: 12px; }'
+            ].join('\n');
+
+            function isWatch() {
+              return location.pathname === '/watch' || location.pathname.indexOf('/live/') === 0;
+            }
+
+            function isBrowsePath() {
+              var p = location.pathname;
+              return p === '/' || p === '/results' || p === '/playlist' ||
+                p.indexOf('/feed/') === 0 || p.indexOf('/channel/') === 0 || p.indexOf('/@') === 0 ||
+                p.indexOf('/hashtag/') === 0 || p.indexOf('/c/') === 0 || p.indexOf('/user/') === 0 ||
+                p.indexOf('/shorts/') === 0;
+            }
+
+            function videoId() {
+              var v = new URLSearchParams(location.search).get('v');
+              if (v) return v;
+              if (location.pathname.indexOf('/live/') === 0) return location.pathname.split('/')[2] || '';
+              return '';
+            }
+
+            function mobileWatchUrl() {
+              var p = new URLSearchParams(location.search);
+              p.delete('app');
+              p.set('v', videoId());
+              p.set('gg2m', '1');
+              return 'https://m.youtube.com/watch?' + p.toString();
+            }
+
+            function mobileUrl() {
+              var p = new URLSearchParams(location.search);
+              p.delete('app');
+              var q = p.toString();
+              return 'https://m.youtube.com' + location.pathname + (q ? '?' + q : '');
+            }
+
+            function ensureStyle() {
+              if (document.getElementById(STYLE_ID)) return;
+              var s = document.createElement('style');
+              s.id = STYLE_ID;
+              s.textContent = CSS;
+              (document.head || document.documentElement).appendChild(s);
+            }
+
+            function updateBar() {
+              var b = document.getElementById('gg2-yt-full');
+              if (b) b.textContent = full ? 'Lite' : 'Full';
+              document.documentElement.classList.toggle('gg2-lite', !full);
+            }
+
+            function ensureBar() {
+              if (document.getElementById(BAR_ID)) return;
+              var bar = document.createElement('div');
+              bar.id = BAR_ID;
+              var a = document.createElement('span');
+              a.textContent = 'Mobile';
+              a.addEventListener('click', function () {
+                location.assign(mobileWatchUrl());
+              });
+              var b = document.createElement('span');
+              b.id = 'gg2-yt-full';
+              b.textContent = 'Full';
+              b.addEventListener('click', function () {
+                full = !full;
+                updateBar();
+              });
+              bar.appendChild(a);
+              bar.appendChild(b);
+              (document.body || document.documentElement).appendChild(bar);
+              updateBar();
+            }
+
+            function tick() {
+              if (isWatch()) {
+                ensureStyle();
+                document.documentElement.classList.toggle('gg2-lite', !full);
+                ensureBar();
+              } else {
+                var bar = document.getElementById(BAR_ID);
+                if (bar) bar.remove();
+                document.documentElement.classList.remove('gg2-lite');
+                if (isBrowsePath()) location.replace(mobileUrl());
+              }
+            }
+
+            setInterval(tick, 500);
+            tick();
+          })();"""
+
+          object DefaultScripts {
+              private const val FLAG = "seed_yt_v1"
+
+              fun ensure() {
+                  try {
+                      val sp = Gecko.prefs(Gecko.appCtx)
+                      if (sp.getBoolean(FLAG, false)) return
+                      val list = Store.load()
+                      for (code in listOf(YT_SWITCH_JS, YT_LAYOUT_JS)) {
+                          val name = parseMeta(code).name
+                          if (list.none { parseMeta(it.code).name == name }) {
+                              list.add(Script(Store.newId(), code, true, "", ""))
+                          }
+                      }
+                      Store.save(list)
+                      sp.edit().putBoolean(FLAG, true).apply()
+                  } catch (e: Exception) {
+                      Log.e("GG2", "default scripts failed", e)
+                  }
+              }
+          }
           EOF
 
           cat > app/src/main/java/com/grey/gecko/Guide.kt <<'EOF'
@@ -4865,6 +5101,7 @@ jobs:
                   started = true
                   if (useBackup) Backup.start()
                   val runtime = Gecko.runtime(this)
+                  DefaultScripts.ensure()
                   Thread { Updater.autoCheck() }.start()
                   tabs = TabManager(runtime)
                   TabBind.tabs = tabs
@@ -4917,8 +5154,10 @@ jobs:
               return when {
                   t.startsWith("http://") || t.startsWith("https://") ||
                       t.startsWith("about:") || t.startsWith("file:") -> t
+                  t.startsWith("g ") ->
+                      "https://www.google.com/search?q=" + java.net.URLEncoder.encode(t.substring(2).trim(), "UTF-8")
                   t.contains(" ") || !t.contains(".") ->
-                      "https://www.google.com/search?q=" + java.net.URLEncoder.encode(t, "UTF-8")
+                      "https://m.youtube.com/results?search_query=" + java.net.URLEncoder.encode(t, "UTF-8")
                   else -> "https://" + t
               }
           }
@@ -5048,7 +5287,6 @@ jobs:
                               onEditStarted = { startEdit = false },
                               onTabs = { screen = "tabs" },
                               onHistory = { screen = "history" },
-                              onBookmarks = { screen = "bookmarks" },
                               onScripts = { screen = "scripts" },
                               onElements = { screen = "elements" },
                               onCapture = { screen = "capture" },
@@ -5079,15 +5317,6 @@ jobs:
                                           }
                                       )
                                       "history" -> HistoryScreen(
-                                          onBack = { screen = "browser" },
-                                          onOpen = { u ->
-                                          val c = tabs.current
-                                          if (tabs.home || c == null) tabs.newTab(u, true) else tabs.load(c, u)
-                                          screen = "browser"
-                                          }
-                                      )
-                                      "bookmarks" -> BookmarksScreen(
-                                          tabs,
                                           onBack = { screen = "browser" },
                                           onOpen = { u ->
                                           val c = tabs.current
@@ -5289,7 +5518,6 @@ jobs:
                       if (stage == 1) {
                           Box(Modifier.fillMaxSize()) { TabManagerScreen(tabs, { }, { }, { _ -> }) }
                           Box(Modifier.fillMaxSize()) { HistoryScreen({ }, { _ -> }) }
-                          Box(Modifier.fillMaxSize()) { BookmarksScreen(tabs, { }, { _ -> }) }
                           Box(Modifier.fillMaxSize()) { ScriptsScreen({ }, { _ -> }, { }) }
                           Box(Modifier.fillMaxSize()) { ElementRulesScreen({ }) }
                           Box(Modifier.fillMaxSize()) { GuideScreen({ }) }
@@ -5404,7 +5632,6 @@ jobs:
               onEditStarted: () -> Unit,
               onTabs: () -> Unit,
               onHistory: () -> Unit,
-              onBookmarks: () -> Unit,
               onScripts: () -> Unit,
               onElements: () -> Unit,
               onCapture: () -> Unit,
@@ -5432,12 +5659,6 @@ jobs:
 
               LaunchedEffect(cur?.id, tabs.home) {
                   if (HideTool.active && (tabs.home || cur?.id != HideTool.tabId)) HideTool.stop()
-              }
-              val bmRev = BookmarkStore.rev
-              val curUrl = cur?.url ?: ""
-              val marked = remember(bmRev, curUrl) {
-                  curUrl.isNotBlank() && curUrl != "about:blank" &&
-                      BookmarkStore.load().any { normUrl(it.url) == normUrl(curUrl) }
               }
 
               LaunchedEffect(active) {
@@ -5615,32 +5836,8 @@ jobs:
                                       }
                                   )
                                   DropdownMenuItem(
-                                  text = { Text(if (marked) "Remove bookmark" else "Add to bookmark", color = Color.White) },
-                                      onClick = {
-                                          menu = false
-                                          val t = tabs.current
-                                          val u = shownUrl(t)
-                                          if (!tabs.home && t != null && u.isNotBlank()) {
-                                              val ex = BookmarkStore.load().firstOrNull { normUrl(it.url) == normUrl(u) }
-                                              if (ex != null) {
-                                                  BookmarkStore.remove(ex.url)
-                                                  toast(ctx, "Bookmark removed")
-                                              } else {
-                                                  BookmarkStore.add(u, t.title.ifBlank { u })
-                                                  toast(ctx, "Bookmark added")
-                                              }
-                                          } else {
-                                              toast(ctx, "Nothing to bookmark")
-                                          }
-                                      }
-                                  )
-                                  DropdownMenuItem(
                                       text = { Text("History", color = Color.White) },
                                       onClick = { menu = false; onHistory() }
-                                  )
-                                  DropdownMenuItem(
-                                      text = { Text("Bookmarks", color = Color.White) },
-                                      onClick = { menu = false; onBookmarks() }
                                   )
                                   DropdownMenuItem(
                                       text = { Text("Scripts", color = Color.White) },
@@ -5691,26 +5888,6 @@ jobs:
                                   )
                               }
                           }
-                      }
-                      if (!tabs.home && marked && !tabs.fullscreen) {
-                          Box(
-                              Modifier
-                                  .fillMaxWidth()
-                                  .height(12.dp)
-                                  .background(Color.White)
-                                  .clipToBounds(),
-                                  contentAlignment = Alignment.Center
-                          ) {
-                              Text(
-                                  "Bookmarked",
-                                  color = Color.Black,
-                                  fontSize = 9.sp,
-                                  lineHeight = 12.sp,
-                                  fontWeight = FontWeight.Bold,
-                                  maxLines = 1
-                              )
-                          }
-                          Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFF555555)))
                       }
                       Box(
                           Modifier
@@ -5765,7 +5942,7 @@ jobs:
                               modifier = Modifier.fillMaxSize()
                           )
                           if (tabs.home) {
-                              HomeScreen(Modifier.fillMaxSize())
+                              HomeScreen(tabs, Modifier.fillMaxSize())
                               }
                               if (pull > 0f) {
                                   val prog = (pull / pullTrigger).coerceIn(0f, 1f)
@@ -6209,20 +6386,12 @@ jobs:
               }
           }
 
+          const val YT_HOME = "https://m.youtube.com/"
+
           @Composable
-          fun HomeScreen(modifier: Modifier = Modifier) {
-              Column(
-                  modifier
-                      .background(BG)
-                      .pointerInput(Unit) { detectTapGestures { } }
-                      .padding(20.dp),
-                  horizontalAlignment = Alignment.CenterHorizontally
-              ) {
-                  Spacer(Modifier.height(72.dp))
-                  Text("GG2", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
-                  Spacer(Modifier.height(4.dp))
-                  Text("Search or enter an address above", color = Soft, fontSize = 13.sp)
-              }
+          fun HomeScreen(tabs: TabManager, modifier: Modifier = Modifier) {
+              LaunchedEffect(Unit) { tabs.newTab(YT_HOME, true) }
+              Box(modifier.background(BG))
           }
 
           @Composable
@@ -6543,141 +6712,6 @@ jobs:
                           TextButton(onClick = { confirmClear = false }) { Text("Cancel", color = Color.White) }
                       }
                   )
-              }
-          }
-
-          class BookGroup(val key: String, val items: List<PageEntry>)
-
-          fun groupBookmarks(all: List<PageEntry>): List<BookGroup> {
-              val order = ArrayList<String>()
-              val map = HashMap<String, MutableList<PageEntry>>()
-              for (e in all) {
-                  val k = keyOfUrl(e.url)
-                  val l = map.getOrPut(k) {
-                      order.add(k)
-                      mutableListOf()
-                  }
-                  l.add(e)
-              }
-              return order.map { k -> BookGroup(k, map[k] ?: mutableListOf()) }
-          }
-
-          @Composable
-          fun BookmarkCard(e: PageEntry, closing: Boolean, onClick: () -> Unit, onToggleClose: () -> Unit) {
-              val shape = RoundedCornerShape(12.dp)
-              val key = keyOfUrl(e.url)
-              val cardBg by animateColorAsState(if (closing) Color(0xFF4A2A2A) else Bar, label = "cardBg")
-              Row(
-                  Modifier
-                      .fillMaxWidth()
-                      .padding(bottom = 10.dp)
-                      .clip(shape)
-                      .background(cardBg)
-                      .clickable(enabled = !closing) { onClick() }
-                      .padding(10.dp),
-                  verticalAlignment = Alignment.CenterVertically
-              ) {
-                  FaviconBox(key, 36.dp, 8.dp, 16)
-                  Spacer(Modifier.width(12.dp))
-                  Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                      Text(
-                          e.title.ifBlank { e.url },
-                          color = Color.White,
-                          fontSize = 13.sp,
-                          fontWeight = FontWeight.SemiBold,
-                          maxLines = 2,
-                          overflow = TextOverflow.Ellipsis
-                      )
-                      Text(
-                          e.url,
-                          color = Soft,
-                          fontSize = 11.sp,
-                          maxLines = 1,
-                          overflow = TextOverflow.Ellipsis
-                      )
-                  }
-                  Spacer(Modifier.width(8.dp))
-                  UndoClose(closing) { onToggleClose() }
-              }
-          }
-
-          @Composable
-          fun BookmarksScreen(tabs: TabManager, onBack: () -> Unit, onOpen: (String) -> Unit) {
-              val rev = BookmarkStore.rev
-              val marks = remember(rev) { BookmarkStore.load() }
-              val groups = groupBookmarks(marks)
-              var activeKey by remember { mutableStateOf(groupKeyOf(tabs.current)) }
-              val active = groups.firstOrNull { it.key == activeKey } ?: groups.firstOrNull()
-
-              Column(Modifier.fillMaxSize().background(BG)) {
-                  Header {
-                      TextButton(onClick = onBack) { Text("←", color = Color.White, fontSize = 20.sp) }
-                      Text("Bookmarks", color = Color.White, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                  }
-                  Body {
-                      Box(Modifier.fillMaxWidth().height(0.5.dp).background(Field))
-                      if (groups.isEmpty()) {
-                          EmptyNote("No bookmarks yet. Open a page, then use the menu and tap Add to bookmark.")
-                      } else {
-                          BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                              val railW = (maxWidth * 0.38f).coerceIn(120.dp, 160.dp)
-                              Row(Modifier.fillMaxSize()) {
-                                  Column(
-                                      Modifier
-                                          .width(railW)
-                                          .fillMaxHeight()
-                                          .background(Bar)
-                                          .verticalScroll(rememberScrollState())
-                                          .padding(vertical = 8.dp)
-                                  ) {
-                                      for (g in groups) {
-                                          RailItem(
-                                              g.key,
-                                              if (g.key == "newtab") "Other" else g.key,
-                                              g.items.size,
-                                              "bookmark",
-                                              g.key == active?.key,
-                                              false,
-                                              { activeKey = g.key }
-                                          )
-                                      }
-                                  }
-                                  Box(Modifier.width(0.5.dp).fillMaxHeight().background(Field))
-                                  Column(
-                                      Modifier
-                                          .weight(1f)
-                                          .fillMaxHeight()
-                                          .verticalScroll(rememberScrollState())
-                                          .padding(12.dp)
-                                  ) {
-                                      if (active != null) {
-                                          Text(
-                                              (if (active.key == "newtab") "Other" else active.key).uppercase(),
-                                              color = Soft,
-                                              fontSize = 11.sp,
-                                              fontWeight = FontWeight.SemiBold,
-                                              letterSpacing = 0.5.sp,
-                                              modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 10.dp)
-                                          )
-                                          for (e in active.items) {
-                                              key(e.url) {
-                                                  BookmarkCard(
-                                                      e,
-                                                      closing = BookmarkStore.closing.contains(e.url),
-                                                      onClick = { onOpen(e.url) },
-                                                      onToggleClose = {
-                                                          if (BookmarkStore.closing.contains(e.url)) BookmarkStore.undoRemove(e.url)
-                                                          else BookmarkStore.requestRemove(e.url)
-                                                      }
-                                                  )
-                                              }
-                                          }
-                                      }
-                                  }
-                              }
-                          }
-                      }
-                  }
               }
           }
 
